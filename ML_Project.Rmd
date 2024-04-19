@@ -1,0 +1,327 @@
+---
+title: "ML_Project"
+author: "Sagar and Michael Ahana"
+date: "2024-04-07"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+pkg_list <- c("MASS", "ISLR", "dplyr", "caret", "ggplot2", "corrplot", "boot", "car", "glmnet", "tidyr", "reshape2", "neuralnet")
+
+# Install packages if needed
+for (pkg in pkg_list) {
+  # Try loading the library.
+  if (!require(pkg, character.only = TRUE)) {
+    # If the library cannot be loaded, install it from CRAN repository; then load.
+    install.packages(pkg, repos = "https://cran.r-project.org")
+    library(pkg, character.only = TRUE)
+  }
+}
+
+```
+
+1) EDA 
+
+```{r}
+bank_data = read.csv("bank.csv")
+
+# Display the structure of the dataset
+str(bank_data)
+
+# Summary statistics for numerical variables
+summary(bank_data)
+
+# Summary statistics for categorical variables
+#sapply(bank_data[, sapply(bank_data, is.factor)], table)
+
+# Check for missing values
+missing_values <- colSums(is.na(bank_data))
+print(missing_values)
+
+# Histograms for numerical variables
+num_vars <- select_if(bank_data, is.numeric)
+num_vars_long <- pivot_longer(num_vars, everything())
+
+ggplot(num_vars_long, aes(value)) +
+  geom_histogram(binwidth = 5) +
+  facet_wrap(~ name, scales = "free_x") +
+  labs(title = "Histograms of Numerical Variables")
+
+
+# Correlation matrix for numerical variables
+cor_matrix <- cor(num_vars)
+print("Correlation Matrix for Numerical Variables:")
+print(cor_matrix)
+
+# Heatmap of the correlation matrix
+ggplot(melt(cor_matrix), aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Correlation Heatmap for Numerical Variables")
+
+```
+
+EDA Summary:
+
+We first understood the data by viewing structure and summary statistics.
+We then checked the missing values and generated histograms for numerical variables 
+to understand their distributions.We then calculated the correlation matrix for 
+numerical variables and plotted a heat-map to visualize the correlations.
+
+Overall, we did a comprehensive exploration of the dataset, including its structure, 
+summary statistics, missing values, distribution of numerical variables, 
+and correlations between numerical variables.
+
+
+**Analsis:** 
+
+**Classification - Predicting Term Deposit Subscription by using logistic regression, rf, knn:**
+
+**1. GLM (logistic Regression): **
+
+```{r}
+
+bank_data = read.csv("bank.csv")
+
+# Train-test split
+set.seed(730216)
+
+train_index <- createDataPartition(bank_data$y, p = 0.8, list = FALSE)
+train_data <- bank_data[train_index, ]
+test_data <- bank_data[-train_index, ]
+
+train_with_cv <- function(data, method, family, k) {
+  # Define cross-validation settings
+  ctrl <- trainControl(method = "cv", number = k)
+  
+  # Initialize variable to store total computation time
+  total_elapsed_time <- 0
+  
+  # Initialize vector to store accuracy values for each fold
+  accuracy <- numeric(k)
+  
+
+# Train model with cross-validation
+  for (i in 1:k) {
+    # Start measuring computation time
+    start_time <- Sys.time()
+    
+    # Train model with cross-validation
+    formula <- as.formula(paste("y ~ ."))
+    model <- train(formula, 
+                   data = data, 
+                   method = method, 
+                   family = family,
+                   trControl = ctrl)
+    
+    # End measuring computation time
+    end_time <- Sys.time()
+    
+    # Compute elapsed time for this fold
+    elapsed_time <- round(end_time - start_time, 4)
+    
+    # Accumulate total elapsed time
+    total_elapsed_time <- total_elapsed_time + elapsed_time
+    
+    # Predict on test data
+    predictions <- predict(model, newdata = test_data)
+    
+    # Convert predictions and test_data$y to factors with the same levels
+    predictions <- factor(predictions, levels = c("yes", "no")) 
+    test_data$y <- factor(test_data$y, levels = c("yes", "no"))
+    
+    # Create confusion matrix
+    conf_matrix <- confusionMatrix(predictions, test_data$y)
+    
+    # Extract accuracy and store in accuracy vector
+    accuracy[i] <- conf_matrix$overall["Accuracy"]
+  }
+  
+  # Return list containing confusion matrix, total elapsed time, and accuracy values
+  return(list(conf_matrix = conf_matrix, total_elapsed_time = total_elapsed_time, accuracy = accuracy[k]))
+}
+
+# Logistic
+logit <- train_with_cv(data = train_data, method = "glm", family = "binomial", k = 5)
+print(logit)
+
+```
+
+**Logistic Regression Analysis: ** The model achieved an accuracy of 90.60%, with a sensitivity of 31.73% and specificity of 98.25%, indicating its ability to correctly identify term deposit subscriptions and non-subscriptions. Additionally, the positive predictive value stands at 70.21%, suggesting its reliability in predicting actual term deposit subscriptions.
+
+**2. KNN: **
+
+```{r}
+train_with_rf_knn <- function(data, method, k) {
+  # Define cross-validation settings
+  ctrl <- trainControl(method = "cv", number = k)
+  
+  # Initialize variables to store total computation time and accuracy
+  total_elapsed_time <- 0
+  accuracy <- numeric(k)
+  
+  # Train model with cross-validation
+  for (i in 1:k) {
+    # Start measuring computation time
+    start_time <- Sys.time()
+    
+    # Train model with cross-validation
+    formula <- as.formula(paste("y ~ ."))
+    model <- train(formula, 
+                   data = data, 
+                   method = method, 
+                   trControl = ctrl)
+    
+    # End measuring computation time
+    end_time <- Sys.time()
+    
+    # Compute elapsed time for this fold
+    elapsed_time <- round(end_time - start_time, 4)
+    
+    # Accumulate total elapsed time
+    total_elapsed_time <- total_elapsed_time + elapsed_time
+  
+  }
+  
+   # Predict on test data
+  predictions <- predict(model, newdata = test_data)
+  
+  # Convert predictions and test_data$y to factors with the same levels
+  predictions <- factor(predictions, levels = c("yes", "no")) 
+  test_data$y <- factor(test_data$y, levels = c("yes", "no"))
+  
+  # Create confusion matrix
+  conf_matrix <- confusionMatrix(predictions, test_data$y)
+  
+   # Extract accuracy
+    accuracy[i] <- conf_matrix$overall["Accuracy"]
+  
+  
+  # Return list containing confusion matrix and total elapsed time
+  return(list(conf_matrix = conf_matrix, total_elapsed_time = total_elapsed_time,accuracy = accuracy[k]))
+}
+
+
+# KNN:
+KNN = train_with_rf_knn(data = train_data,  method = "knn", k = 5)
+print(KNN)
+
+```
+
+**KNN Interpretation: ** The model achieved an accuracy of 87.72%, with a sensitivity of 11.538% and specificity of 97.62%, indicating its ability to correctly identify term deposit subscriptions and non-subscriptions. Additionally, the positive predictive value stands at 38.71%, suggesting its reliability in predicting actual term deposit subscriptions.
+
+**3. Random Forest**
+
+```{r}
+model_rf = train_with_rf_knn(data = train_data,  method = "rf", k = 5)
+print(model_rf)
+
+```
+
+
+**RF Interpretation: ** The model achieved an accuracy of 90.93%, with a sensitivity of 40.38% and specificity of 97.50%, indicating its ability to correctly identify term deposit subscriptions and non-subscriptions. Additionally, the positive predictive value stands at 67.74%, suggesting its reliability in predicting actual term deposit subscriptions.
+
+**Bootstrapping to check the authenticity of my models: **
+
+```{r}
+
+accuracy_logit = logit$accuracy
+accuracy_knn = KNN$accuracy
+accuracy_rf = model_rf$accuracy
+
+accuracy_logit; accuracy_knn; accuracy_rf
+
+num_bootstrap = 1000
+
+# Store accuracies in a list
+accuracies <- list(logit = accuracy_logit, knn = accuracy_knn, rf = accuracy_rf)
+
+# Perform bootstrapping for each model
+bootstrap_results <- lapply(accuracies, function(accuracy) {
+  boot(data = accuracy, statistic = function(x, i) mean(x[i]), R = num_bootstrap)
+})
+
+# Summarize bootstrap results for each model
+summary_bootstrap_results <- lapply(bootstrap_results, summary)
+summary_bootstrap_results
+
+```
+
+
+
+**Extracting important with RF based on score**
+
+```{r}
+
+    # Train random forest model
+    #model <- train(y ~ ., data = bank_data, method = "rf")
+    
+    # Extract variable importance
+    #importance_scores <- varImp(rf)
+    
+    # Plot feature importance
+    #print(importance_scores)
+
+```
+
+We've used random forest classification model to analyze the feature importance, 
+indicating which features have the most significant impact on the prediction of term deposit subscription. 
+
+
+Above feature importance analysis reveals the relative importance of each feature in predicting the target variable. The most influential feature is "duration," which has a importance score of 100. This suggests that the duration of the call plays a significant role in determining whether a client subscribes to a term deposit. Other important features include "balance," "age," and "day," which also contribute significantly to the predictive power of the model. Additionally, factors such as the outcome of the previous marketing campaign ("poutcomesuccess") and the number of days since the client was last contacted ("pdays") are among the top predictors of term deposit subscription. Overall, understanding these influential features can provide valuable insights for targeted marketing strategies and customer engagement efforts.
+
+**3.Customer Segmentation based on 2 of the important features extracted from above by using K-means Clustering:**
+
+```{r}
+
+# Select features for clustering
+cluster_data <- bank_data[, c("age", "balance")]
+
+# Perform K-means clustering
+kmeans_result <- kmeans(cluster_data, centers = 3)
+
+#Centres
+print(kmeans_result$centers)
+
+# Visualize clusters
+plot(cluster_data, col = kmeans_result$cluster)
+
+
+# Create a data frame with cluster labels
+cluster_data <- data.frame(Cluster = factor(kmeans_result$cluster))
+
+# Plot distribution of customers across clusters
+ggplot(cluster_data, aes(x = Cluster)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Customers Across Clusters",
+       x = "Cluster", y = "Count") +
+  theme_minimal()
+
+
+```
+
+By conducting K-means clustering based on age and balance, we grouped clients with similar characteristics, facilitating targeted marketing and service offerings tailored to different client segments, ultimately enhancing customer satisfaction and retention.
+
+Intepretation:
+
+Based on the centroids obtained from the K-means clustering analysis:
+
+Cluster 1:
+Customers in this cluster have an average age of approximately 42.93 years.The average balance for customers in this cluster is $5250.42.
+This cluster might represent a segment of middle-aged customers with moderate to high account balances.
+
+Cluster 2:
+Customers in this cluster have an average age of approximately 44.72 years.The average balance for customers in this cluster is significantly higher, at $18456.91.This cluster could represent older customers with substantially higher account balances, potentially indicating a segment of affluent or high-net-worth individuals.
+
+Cluster 3:
+Customers in this cluster have an average age of approximately 40.84 years.The average balance for customers in this cluster is much lower, at $549.37.This cluster may represent a younger segment of customers with lower account balances, possibly including students, young professionals, or individuals with limited financial resources.
+
+
+
+
